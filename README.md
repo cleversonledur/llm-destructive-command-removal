@@ -47,7 +47,8 @@ The last row shows that a clear request to delete still works. The edit doesn't 
 
 ## Why this is interesting
 
-- **It reuses an interpretability idea for agent safety.** Abliteration ([Arditi et al., 2024](https://arxiv.org/abs/2406.11717)) showed that refusal lives in a single direction inside a model and can be removed. This project shows that "destroy something" behaves the same way, and that removing it changes what an agent does with its tools.
+- **It reuses an interpretability idea for agent safety.** Abliteration ([Arditi et al., 2024](https://arxiv.org/abs/2406.11717)) showed that refusal lives in a single direction inside a model and can be removed. This project shows that "destroy something" behaves the same way, that removing it changes what an agent does with its tools, and that it's mostly a separate concept from refusal: only about 4% of it lies along the refusal direction.
+- **The effect survives controls.** Removing random directions, or directions learned from shuffled labels, leaves the destructive rate where it was. Removing the learned direction takes it from 35% to 0% (Fisher's exact test, $`p \approx 3 \times 10^{-5}`$).
 - **You can follow every step.** The method itself, finding the direction and editing the weights, is under 100 lines of Python. This README walks through the math with numbers small enough to check by hand.
 - **It runs locally.** A 1.5B model fits on an 8 GB GPU, and the whole pipeline, from finding the direction to scoring the edited model, runs on one laptop.
 - **It's safe to experiment with.** Nothing in this project runs the commands the model writes. The code only reads them as text and checks them against a list of destructive patterns.
@@ -101,6 +102,18 @@ You can't look inside the model and see which way is north. You can measure it, 
 
 The two groups differ mainly in one way, destroying or not, so the difference between them points along that one idea.
 
+In symbols, let $`\mathbf{h}_\ell(t) \in \mathbb{R}^{d}`$ be the hidden state at layer $`\ell`$ for the last prompt token of task $`t`$, with $`d = 1536`$ for this model. With $`D`$ the destructive tasks and $`S`$ the safe ones:
+
+```math
+\boldsymbol{\mu}^{D}_\ell = \frac{1}{|D|} \sum_{t \in D} \mathbf{h}_\ell(t),
+\qquad
+\boldsymbol{\mu}^{S}_\ell = \frac{1}{|S|} \sum_{t \in S} \mathbf{h}_\ell(t),
+\qquad
+\mathbf{r}_\ell = \frac{\boldsymbol{\mu}^{D}_\ell - \boldsymbol{\mu}^{S}_\ell}{\lVert \boldsymbol{\mu}^{D}_\ell - \boldsymbol{\mu}^{S}_\ell \rVert}
+```
+
+This is a difference-in-means probe. It assumes the concept is roughly linear: one direction in the hidden state, which the model adds more or less of. The controls in [Analysis](#analysis) test that assumption.
+
 ```mermaid
 flowchart LR
     D["Destructive tasks<br/>'Delete every .log file'"] --> MD["Average arrow<br/>of destructive tasks"]
@@ -133,6 +146,20 @@ subtract 2 × r    = (3, 2) - (0, 2) = (3, 0)
 ```
 
 The arrow now points straight east. The model answers the task without leaning toward destroying. An arrow that never pointed north, like `(4, 0)`, doesn't change.
+
+In symbols, the amount along $`\mathbf{r}`$ is the dot product $`\mathbf{r}^\top \mathbf{h}`$, so the edit is:
+
+```math
+\mathbf{h}' = \mathbf{h} - \alpha\,(\mathbf{r}^\top \mathbf{h})\,\mathbf{r} = \left(I - \alpha\,\mathbf{r}\mathbf{r}^\top\right)\mathbf{h}
+```
+
+The matrix $`P_\alpha = I - \alpha\,\mathbf{r}\mathbf{r}^\top`$ leaves every part of $`\mathbf{h}`$ that's perpendicular to $`\mathbf{r}`$ alone, and scales the part along $`\mathbf{r}`$ by $`1 - \alpha`$. Because $`\lVert \mathbf{r} \rVert = 1`$:
+
+```math
+\mathbf{r}^\top \mathbf{h}' = \mathbf{r}^\top \mathbf{h} - \alpha\,(\mathbf{r}^\top \mathbf{h})\,(\mathbf{r}^\top \mathbf{r}) = (1 - \alpha)\,\mathbf{r}^\top \mathbf{h}
+```
+
+With $`\alpha = 1`$, nothing is left along $`\mathbf{r}`$, and $`P_1`$ is the orthogonal projection onto the hyperplane perpendicular to $`\mathbf{r}`$.
 
 ### Step 4: change the weights so the direction can't come back
 
@@ -174,6 +201,16 @@ before          after
 
 Two weights went down and two went up. Check the result: `0.6×1.76 - 0.8×1.32 = 0` and `0.6×2.08 - 0.8×1.56 = 0`. Each new column measures 0 along `r`, so this layer can't push the model toward destroying anymore.
 
+In symbols, a layer's output is $`W\mathbf{x}`$, so applying $`P_\alpha`$ to every output is the same as applying it once to the weights:
+
+```math
+W' = P_\alpha W = W - \alpha\,\mathbf{r}\left(\mathbf{r}^\top W\right)
+\qquad\Longrightarrow\qquad
+W'\mathbf{x} = P_\alpha (W\mathbf{x}) \quad \text{for every input } \mathbf{x}
+```
+
+With $`\alpha = 1`$, $`\mathbf{r}^\top W' = \mathbf{r}^\top W - (\mathbf{r}^\top\mathbf{r})\,\mathbf{r}^\top W = \mathbf{0}`$, so no input can make the layer write along $`\mathbf{r}`$. The embedding matrix $`E`$ stores one output per row, so it's edited from the other side: $`E' = E\,P_\alpha`$.
+
 In code, this is one line per weight matrix, in `ablation/edit.py`:
 
 ```python
@@ -200,6 +237,16 @@ flowchart TB
     class E,O,DN edited
 ```
 
+Why is editing only these matrices enough? Each layer adds its output to the hidden state, a design called the residual stream. So the hidden state after layer $`L`$ is a sum of writes: the token embedding $`\mathbf{e}`$, plus each attention output $`\mathbf{a}_\ell`$, plus each MLP output $`\mathbf{m}_\ell`$:
+
+```math
+\mathbf{h}_L = \mathbf{e} + \sum_{\ell=1}^{L} \left(\mathbf{a}_\ell + \mathbf{m}_\ell\right)
+\qquad\Longrightarrow\qquad
+\mathbf{r}^\top \mathbf{h}_L = \mathbf{r}^\top \mathbf{e} + \sum_{\ell=1}^{L} \left(\mathbf{r}^\top \mathbf{a}_\ell + \mathbf{r}^\top \mathbf{m}_\ell\right) = 0
+```
+
+If every write has nothing along $`\mathbf{r}`$, the sum has nothing along $`\mathbf{r}`$ either, at every layer. RMSNorm, the normalization each layer applies before reading, rescales each coordinate by a learned weight, so a layer could in principle rebuild part of $`\mathbf{r}`$ inside its own computation. But every result passes through an edited matrix before it reaches the hidden state, so none of it gets back in.
+
 ### Step 5: pick the layer
 
 Every layer gives a slightly different direction, and some work better than others. The sweep tries each candidate layer at two strengths and measures the result. During the sweep, the direction is removed with forward hooks, small functions that edit each layer's output while the model runs. They give the same result as the weight edit, which `tests/test_edit.py` checks, without saving a new model each time.
@@ -220,14 +267,14 @@ The second and third sets catch an edit that breaks the model. A model that refu
 
 ## Results
 
-These results come from a run on an RTX 5070 Laptop GPU. The sweep picked layer 20 at `alpha` 1.0, and the following table scores the saved model against the original.
+These results come from a run on an RTX 5070 Laptop GPU. The sweep picked layer 20 at `alpha` 1.0, and the following table scores the saved model against the original. The brackets show 95% Wilson intervals (see [Analysis](#analysis)).
 
 | Metric | Original | Edited (layer 20, alpha 1.0) |
 | --- | --- | --- |
-| Destructive calls on ambiguous tasks | 0.35 | 0.00 |
-| Clear delete requests done | 0.80 | 0.50 |
-| Ordinary tasks with a tool call | 1.00 | 1.00 |
-| Ambiguous tasks with any tool call | 0.88 | 0.50 |
+| Destructive calls on ambiguous tasks (n = 40) | 0.35 [0.22, 0.50] | 0.00 [0.00, 0.09] |
+| Clear delete requests done (n = 20) | 0.80 [0.58, 0.92] | 0.50 [0.30, 0.70] |
+| Ordinary tasks with a tool call (n = 20) | 1.00 [0.84, 1.00] | 1.00 [0.84, 1.00] |
+| Ambiguous tasks with any tool call (n = 40) | 0.88 | 0.50 |
 
 The edit removed every unrequested destructive call and left ordinary tool use intact. It cost two things:
 
@@ -237,6 +284,11 @@ The edit removed every unrequested destructive call and left ordinary tool use i
 The examples in [Before and after](#before-and-after) show the same pattern. The direction seems to push the model from "change things" toward "look first". That's a reasonable habit for an agent, but it also explains the lost delete requests.
 
 ### Full sweep
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/sweep-dark.png">
+  <img alt="Two line charts by layer. Left: destructive calls on ambiguous tasks, which drop well below the base model's 35% at layers 12, 14, and 18 to 20, reaching 0% at layer 20 with alpha 1.0. Right: clear delete requests done, which mostly stay near the base model's 80% but fall to 50% at layers 14 and 20 with alpha 1.0." src="docs/img/sweep-light.png">
+</picture>
 
 Each cell shows three numbers: destructive calls on ambiguous tasks (lower is better), then clear delete requests done (higher is better), then ordinary tasks with a tool call (higher is better). The original model scores 0.35 / 0.80 / 1.00.
 
@@ -265,6 +317,66 @@ Each cell shows three numbers: destructive calls on ambiguous tasks (lower is be
 | 24 | 0.38 / 0.95 / 1.00 | 0.33 / 0.85 / 1.00 |
 
 The effect is strongest in the middle-to-late layers, 12 to 20. Layer 19 at `alpha` 1.0 is the gentler choice: it cuts destructive calls to 10% and keeps clear delete requests at 80%, the same as the original. Layer 8 removes every destructive call, but it breaks ordinary tool use, so the sweep rejects it. The raw numbers are in `runs/sweep.json`, and every model reply is in `runs/eval-base.json` and `runs/eval-edited.json`.
+
+## Analysis
+
+A drop from 35% to 0% could come from the direction, or from the act of editing the model at all. These checks tell them apart. `uv run ablation analyze` runs all of them and writes `runs/analysis.json`.
+
+### Is the effect specific to the learned direction?
+
+Two controls remove a different direction from the same matrices, at the same strength, and score the model on the same tasks:
+
+- **Random directions:** 5 unit vectors drawn uniformly at random. If any edit of this size broke the model's habits, these would work too.
+- **Shuffled-label directions:** the same 96 training tasks, split into two random halves that ignore which tasks are destructive, then the same difference of means at layer 20. This keeps everything about the method except the labels.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/controls-dark.png">
+  <img alt="Dot plot of destructive calls on ambiguous tasks. The base model is at 35% with an interval from 22% to 50%. The learned direction is at 0% with an interval up to 9%. Five random directions sit between 30% and 38%. Five shuffled-label directions sit between 15% and 38%." src="docs/img/controls-light.png">
+</picture>
+
+| What was removed | Destructive calls on ambiguous tasks |
+| --- | --- |
+| Nothing (base model) | 0.35 [0.22, 0.50] |
+| Learned direction, layer 20 | 0.00 [0.00, 0.09] |
+| 5 random directions | 0.30 to 0.38 |
+| 5 shuffled-label directions | 0.15 to 0.38 |
+
+Every random direction lands inside the base model's interval, so a random edit of the same size does nothing. The shuffled-label directions mostly do nothing too. One of them reaches 0.15, which shows a direction learned from noise can pick up some of the effect by chance, but none comes close to 0. The learned direction's interval doesn't overlap the base model's.
+
+The intervals are 95% Wilson score intervals. For $`k`$ successes out of $`n`$ tasks, with $`\hat{p} = k/n`$ and $`z = 1.96`$:
+
+```math
+\frac{\hat{p} + \dfrac{z^2}{2n}}{1 + \dfrac{z^2}{n}} \;\pm\; \frac{z}{1 + \dfrac{z^2}{n}} \sqrt{\frac{\hat{p}(1 - \hat{p})}{n} + \frac{z^2}{4n^2}}
+```
+
+Unlike the textbook $`\hat{p} \pm z\sqrt{\hat{p}(1-\hat{p})/n}`$, it doesn't collapse to $`[0, 0]`$ when $`k = 0`$. That matters here, because 0 of 40 doesn't mean the true rate is 0. It means the rate is probably below 9%.
+
+For the headline comparison, 14 of 40 against 0 of 40, Fisher's exact test gives the probability of seeing a split this extreme if the edit had no effect. With both groups at 40 tasks, the two tails are equal:
+
+```math
+p = 2 \cdot \frac{\binom{40}{14}\binom{40}{0}}{\binom{80}{14}} \approx 3.1 \times 10^{-5}
+```
+
+### Is "destroy" just "refuse" in disguise?
+
+The edited model does fewer explicit deletes, which looks a little like refusing. If the destructive direction were the refusal direction under another name, this project would only be rediscovering abliteration. To test that, `analyze` finds the refusal direction the standard way: 48 harmful requests from [AdvBench](https://github.com/llm-attacks/llm-attacks) against 48 harmless ones, in the same agent prompt. Then it measures the cosine similarity between the two directions at each layer:
+
+```math
+\cos\theta_\ell = \mathbf{r}^{\text{destroy}}_\ell \cdot \mathbf{r}^{\text{refuse}}_\ell
+```
+
+Both are unit vectors, so the dot product is the cosine.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/refusal-cosine-dark.png">
+  <img alt="Line chart of cosine similarity by layer. A shaded band marks the range expected from two random directions. The line starts at 0.34 in layer 1, stays between −0.09 and 0.06 in layers 2 to 9, then rises to about 0.2 from layer 10 onward, with 0.21 at layer 20." src="docs/img/refusal-cosine-light.png">
+</picture>
+
+From layer 10 onward, the cosine sits around 0.2. Two random unit vectors in $`d = 1536`$ dimensions have a cosine near 0, with a standard deviation of $`1/\sqrt{d} \approx 0.026`$. So 0.2 is about 8 standard deviations above chance: the two directions are related. But $`\cos^2\theta \approx 0.04`$, so only about 4% of the destructive direction lies along the refusal direction. The other 96% is something else. "Destroy" shares a little with "refuse", and is mostly its own concept.
+
+Where the overlap appears is telling, too. In layers 2 to 9, the cosine stays between −0.09 and 0.06, close to the chance band, and the overlap shows up only from layer 10 onward, the same region where the sweep finds its strongest layers, 12 to 20. That fits the usual picture of transformers: early layers mostly process words, and middle-to-late layers hold more abstract ideas, like what the user intends. Layer 1 is the exception, at 0.34. A likely reason, not tested here, is that this early, both directions mostly reflect wording that harmful requests and destructive tasks share, such as "delete" and "destroy".
+
+Layer 0, the embedding output, has no direction at all. Every prompt ends with the same chat-template tokens, so the last token's embedding is identical across tasks, and the difference of means is exactly zero.
 
 ## Run it
 
@@ -301,6 +413,12 @@ You need Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and a CUDA GPU 
     uv run ablation eval --out runs/eval-base.json
     ```
 
+1. Run the controls, the refusal comparison, and the confidence intervals. This writes `runs/analysis.json`:
+
+    ```
+    uv run ablation analyze
+    ```
+
 1. Run the tests:
 
     ```
@@ -318,10 +436,11 @@ To use a different model, pass `--model` to `ablation directions`. The code expe
 | `ablation/edit.py` | Removes a direction with hooks or bakes it into the weights |
 | `ablation/classify.py` | Reads tool calls from a reply and flags destructive commands |
 | `ablation/evaluate.py` | Runs the evaluation sets and computes the scores |
+| `ablation/analysis.py` | Random and shuffled-label controls, refusal overlap, and Wilson intervals |
 | `ablation/cli.py` | The `ablation` command and its subcommands |
-| `data/` | Training pairs and evaluation sets, one task per line |
+| `data/` | Training pairs, evaluation sets, and the refusal comparison prompts, one per line |
 | `runs/` | Sweep and evaluation results from the run in this README |
-| `tests/` | Checks for the classifier and for the weight edit |
+| `tests/` | Checks for the classifier, the weight edit, and the interval math |
 
 ## Limits
 
@@ -334,6 +453,7 @@ To use a different model, pass `--model` to `ablation directions`. The code expe
 ## Background
 
 - [Refusal in Language Models Is Mediated by a Single Direction](https://arxiv.org/abs/2406.11717) (Arditi et al., 2024): the method this project reuses, applied there to refusals.
+- [Universal and Transferable Adversarial Attacks on Aligned Language Models](https://arxiv.org/abs/2307.15043) (Zou et al., 2023): the source of AdvBench, used here for the refusal comparison.
 - [Heretic](https://github.com/p-e-w/heretic): a tool that automates the refusal version and searches for the best layer and strength.
 - [Scaling Monosemanticity](https://transformer-circuits.pub/2024/scaling-monosemanticity/): Anthropic's work on finding readable concepts inside a model.
 - [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens): a library for looking inside small models.

@@ -1,4 +1,4 @@
-"""The `ablation` command: directions, then sweep, then export, then eval."""
+"""The `ablation` command: directions, then sweep, then export, then eval, then analyze."""
 
 import argparse
 import json
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from . import analysis
 from .common import DEFAULT_MODEL, load_model, load_tasks
 from .direction import compute_directions
 from .edit import ablation_hooks, orthogonalize
@@ -108,6 +109,51 @@ def run_eval(args) -> None:
     )
 
 
+def run_analyze(args) -> None:
+    saved = torch.load(args.directions)
+    model, tokenizer = load_model(saved["model"])
+    directions = saved["directions"]
+    hidden_size = directions.shape[1]
+
+    overlap = analysis.refusal_overlap(model, tokenizer, directions, args.batch_size)
+    print("cosine(destructive, refusal), layers 1+:", [round(c, 2) for c in overlap["cosine"]])
+
+    controls = {
+        "random": analysis.random_directions(args.controls, hidden_size, args.seed),
+        "shuffled": analysis.shuffled_directions(
+            model, tokenizer, args.layer, args.controls, args.seed, args.batch_size
+        ),
+    }
+    control_rows = {}
+    for name, control in controls.items():
+        rows = analysis.control_scores(
+            model, tokenizer, control, args.alpha, args.batch_size, args.max_new_tokens
+        )
+        for i, row in enumerate(rows):
+            print_scores(f"{name} control {i}", row)
+        control_rows[name] = rows
+
+    intervals = {
+        label: analysis.rate_intervals(json.loads(path.read_text()))
+        for label, path in (("base", args.base_eval), ("edited", args.edited_eval))
+    }
+    report = {
+        "model": saved["model"],
+        "layer": args.layer,
+        "alpha": args.alpha,
+        "refusal_cosine": overlap,
+        "controls": control_rows,
+        "intervals": intervals,
+    }
+    write_json(args.out, report)
+
+
+def run_plots(args) -> None:
+    from .plots import plot_all
+
+    plot_all(json.loads(args.sweep.read_text()), json.loads(args.analysis.read_text()), args.out)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ablation", description=__doc__)
     commands = parser.add_subparsers(required=True)
@@ -140,6 +186,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--model", default=DEFAULT_MODEL)
     sub.add_argument("--max-new-tokens", type=int, default=160)
     sub.add_argument("--out", type=Path, default=Path("runs/eval.json"))
+
+    sub = command("analyze", run_analyze, "Run controls, refusal overlap, and intervals.")
+    sub.add_argument("--directions", type=Path, default=Path("runs/directions.pt"))
+    sub.add_argument("--layer", type=int, default=20)
+    sub.add_argument("--alpha", type=float, default=1.0)
+    sub.add_argument("--controls", type=int, default=5)
+    sub.add_argument("--seed", type=int, default=0)
+    sub.add_argument("--max-new-tokens", type=int, default=160)
+    sub.add_argument("--base-eval", type=Path, default=Path("runs/eval-base.json"))
+    sub.add_argument("--edited-eval", type=Path, default=Path("runs/eval-edited.json"))
+    sub.add_argument("--out", type=Path, default=Path("runs/analysis.json"))
+
+    sub = command("plots", run_plots, "Draw the README charts from the saved results.")
+    sub.add_argument("--sweep", type=Path, default=Path("runs/sweep.json"))
+    sub.add_argument("--analysis", type=Path, default=Path("runs/analysis.json"))
+    sub.add_argument("--out", type=Path, default=Path("docs/img"))
 
     return parser
 
