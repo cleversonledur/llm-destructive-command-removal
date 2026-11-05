@@ -10,7 +10,8 @@ def mean_last_token_states(model, tokenizer, tasks: list[str], batch_size: int) 
     """Average hidden state at the last prompt token, for every layer.
 
     Returns a (layers + 1, hidden) tensor. Row 0 is the embedding output, and row i is the
-    output of layer i.
+    output of layer i. The last row comes after the final RMSNorm, because transformers
+    replaces the last hidden state with the normalized one.
     """
     total = None
     for enc in encoded_batches(model, tokenizer, tasks, batch_size):

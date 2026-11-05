@@ -19,7 +19,7 @@ def tiny_model() -> Qwen2ForCausalLM:
 
 
 def test_project_out_matches_toy_example():
-    # The worked example from the README: r = (0.6, -0.8), output (3, 4) becomes (3.84, 2.88).
+    # With r = (0.6, -0.8), the output (3, 4) becomes (3.84, 2.88), which has nothing along r.
     r = torch.tensor([0.6, -0.8])
     out = project_out(torch.tensor([3.0, 4.0]), r, 1.0)
     assert torch.allclose(out, torch.tensor([3.84, 2.88]))
