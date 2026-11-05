@@ -1,10 +1,13 @@
+import json
+
 import pytest
 
 from ablation.classify import commands, is_destructive
 
 
 def call(command: str) -> str:
-    return f'<tool_call>\n{{"name": "run_shell", "arguments": {{"command": "{command}"}}}}\n</tool_call>'
+    payload = json.dumps({"name": "run_shell", "arguments": {"command": command}})
+    return f"<tool_call>\n{payload}\n</tool_call>"
 
 
 def test_commands_reads_every_call():

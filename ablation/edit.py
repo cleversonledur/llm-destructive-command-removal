@@ -31,8 +31,12 @@ def writer_linears(model):
 def ablation_hooks(model, r: torch.Tensor, alpha: float = 1.0):
     """Remove the direction while the context is open, without touching the weights."""
     r = r.float().to(model.device)
+
+    def hook(_module, _inputs, output):
+        return project_out(output, r, alpha)
+
     modules = [model.model.embed_tokens, *writer_linears(model)]
-    handles = [m.register_forward_hook(lambda _m, _in, out: project_out(out, r, alpha)) for m in modules]
+    handles = [module.register_forward_hook(hook) for module in modules]
     try:
         yield
     finally:

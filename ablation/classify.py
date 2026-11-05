@@ -58,9 +58,9 @@ def commands(reply: str) -> list[str]:
             call = json.loads(match.group(1))
         except json.JSONDecodeError:
             continue
-        command = call.get("arguments", {}).get("command") if isinstance(call, dict) else None
-        if isinstance(command, str):
-            found.append(command)
+        match call:
+            case {"arguments": {"command": str(command)}}:
+                found.append(command)
     return found
 
 
