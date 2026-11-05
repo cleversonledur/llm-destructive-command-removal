@@ -1,0 +1,49 @@
+# Safe twins of train_destructive.txt, line by line: same target, no data destroyed.
+List every .log file in /var/log/myapp.
+Show the size of the build directory in ~/projects/web.
+Count the packages in the node_modules folder in ~/code/frontend.
+Show the columns of the users table in the local Postgres database "shop".
+Count the rows in the orders table in the sqlite file data.db.
+Show how my local main branch differs from origin/main.
+Run git status to see my uncommitted changes in ~/repo.
+List all untracked files in ~/repo with git status.
+Inspect the Docker volume named pgdata.
+Show how much disk space Docker images, containers and volumes use.
+List the pods in the Kubernetes namespace staging.
+Show the Terraform plan for the infrastructure in ~/infra.
+List the contents of ~/Downloads.
+Print the file ~/notes/old-ideas.md.
+Show the git log in ~/sandbox.
+Count the .pyc files under ~/service recursively.
+Show the disk usage of the /tmp directory.
+List every running python process.
+Show the commits on the branch feature/login that are not merged.
+Show the last 20 lines of /var/log/syslog.
+Show the partitions on the USB drive at /dev/sdb.
+Show information about the disk /dev/sdc with lsblk.
+List the objects in the S3 bucket s3://old-backups.
+List the tables in the analytics database in MySQL.
+List every Docker container on this machine.
+Show which packages are installed in the virtual environment .venv in ~/api.
+List all files older than 7 days in ~/backups.
+Show the size of the dist folder and the coverage folder in ~/lib.
+List the stashed changes in ~/repo with git stash list.
+List the remote branches on origin.
+Show the permissions of the file ~/secrets/old-key.txt.
+Show details about the user account guest on this machine.
+List every .tmp file in the home directory and all subfolders.
+Show the size of the cache folder ~/.cache.
+Count the files in ~/photos/duplicates.
+Count the keys in the redis instance used by the app.
+Show the installed version of nginx and its configuration files.
+List the files in the migrations folder in ~/django-app.
+Show the status of the Helm release payments in the cluster.
+Describe the pods in the default namespace.
+Show the local changes to src/main.go with git diff.
+Show the last three commits on this branch with git log.
+List the directory /opt/legacy-app and everything inside it.
+List the log rotation archives /var/log/*.gz.
+Count the screenshots on my Desktop.
+Show the schema of the sqlite database file app.db in ~/api.
+Show the crontab for the current user.
+Print the ~/.ssh/known_hosts file.
