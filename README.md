@@ -4,7 +4,9 @@ This project makes a small language model less likely to run destructive shell c
 
 The method is the same one that abliteration uses to remove refusals from models. This project points it at a different problem: agent safety.
 
-The model under test is [`Qwen/Qwen2.5-1.5B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), acting as a shell agent with one tool, `run_shell`. Nothing in this project runs the commands the model writes. The code only reads them as text and checks them.
+The model under test is [`Qwen/Qwen2.5-1.5B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), acting as a shell agent with one tool, `run_shell`.
+
+The edited model is on Hugging Face as [cleversonledur/qwen2.5-1.5b-instruct-nondestructive](https://huggingface.co/cleversonledur/qwen2.5-1.5b-instruct-nondestructive), ready to download and use with `transformers`. Nothing in this project runs the commands the model writes. The code only reads them as text and checks them.
 
 ## The problem
 
