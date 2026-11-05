@@ -419,6 +419,12 @@ You need Python 3.12 or later, [uv](https://docs.astral.sh/uv/), and a CUDA GPU 
     uv run ablation analyze
     ```
 
+1. Draw the charts in this README, in light and dark versions, into `docs/img/`:
+
+    ```
+    uv run ablation plots
+    ```
+
 1. Run the tests:
 
     ```
