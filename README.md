@@ -1,8 +1,15 @@
 # LLM destructive command removal
 
-**Teach a small agent model to look before it deletes, by editing one direction out of its weights.**
+**Directional ablation on the residual stream of Qwen2.5-1.5B: a rank-1 weight edit that teaches a small agent model to look before it deletes.**
 
-Give a small model shell access and a vague task like "clean this up", and it often takes the shortest path: `rm -rf`, `git reset --hard`, `terraform destroy`. This project finds the direction inside the model that pushes it toward destroying things, and removes it from the weights. There's no retraining, no fine-tuning data, and no filter in front of the model. The whole edit takes a few minutes on a laptop GPU.
+Give a small model shell access and a vague task like "clean this up", and it often takes the shortest path: `rm -rf`, `git reset --hard`, `terraform destroy`. This project opens the model up, finds the single direction in its internal activations that pushes it toward destroying things, and removes that direction from the weights themselves. There's no retraining, no gradient step, no fine-tuning data, and no filter in front of the model. The whole edit takes a few minutes on a laptop GPU.
+
+Here's how deep it goes:
+
+- **Reads the model's internals.** It records the residual stream, the 1536-number hidden state that every layer reads from and writes to, at all 28 layers, for 96 contrasting destructive and safe tasks. A difference-in-means probe turns those readings into one candidate "destroy" direction per layer.
+- **Picks the layer causally.** It removes each candidate with forward hooks while the model runs, and scores 42 layer-and-strength combinations on held-out agent tasks. Layer 20 wins.
+- **Rewrites the weights.** It applies the projection $`W \leftarrow (I - \mathbf{r}\mathbf{r}^\top)\,W`$ to all 57 matrices that write into the residual stream: the token embedding, 28 attention output projections, and 28 MLP down projections. That changes 685 million of the model's 1.54 billion weights, yet each matrix moves by a single rank-1 update. Attention queries, keys, and values, the MLP's gate and up projections, the normalization layers, and the output head stay untouched.
+- **Checks that it's real.** Random and shuffled-label directions serve as controls, an exact McNemar test measures significance, and the destructive direction is compared with the known refusal direction, which shows the two are mostly different concepts.
 
 | | Base model | Edited model |
 | --- | --- | --- |
