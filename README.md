@@ -472,3 +472,23 @@ To use a different model, pass `--model` to `ablation directions`. The code expe
 - [Heretic](https://github.com/p-e-w/heretic): a tool that automates the refusal version and searches for the best layer and strength.
 - [Scaling Monosemanticity](https://transformer-circuits.pub/2024/scaling-monosemanticity/): Anthropic's work on finding readable concepts inside a model.
 - [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens): a library for looking inside small models.
+
+## License
+
+Copyright (c) 2026 Cleverson Ledur. The code and data in this repository are released under the [PolyForm Strict License 1.0.0](LICENSE). You can read, run, and study them for noncommercial purposes, such as research, teaching, or personal study. You can't redistribute them, change them, or build new works on them without written permission. For other uses, contact the author through [GitHub](https://github.com/cleversonledur).
+
+`data/refusal_harmful.txt` holds 48 prompts from [AdvBench](https://github.com/llm-attacks/llm-attacks), which keeps its own MIT license: Copyright (c) 2023 Andy Zou. The base model, [Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), keeps its Apache 2.0 license.
+
+## Citation
+
+If you use or refer to this work, cite it as follows:
+
+```bibtex
+@misc{ledur2026destructive,
+  author       = {Ledur, Cleverson},
+  title        = {LLM destructive command removal: directional ablation that teaches a small agent model to look before it deletes},
+  year         = {2026},
+  howpublished = {\url{https://github.com/cleversonledur/llm-destructive-command-removal}},
+  note         = {GitHub repository}
+}
+```
